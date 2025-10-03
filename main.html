@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Coffee</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .file-input-container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        input[type="file"] {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .matches-container {
+            margin-top: 30px;
+        }
+        .match-item {
+            background: #f9f9f9;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #4CAF50;
+        }
+        .match-item strong {
+            color: #333;
+        }
+        .button-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            color: white;
+        }
+        .download-btn {
+            background: #4CAF50;
+        }
+        .download-btn:hover {
+            background: #45a049;
+        }
+        .refresh-btn {
+            background: #2196F3;
+        }
+        .refresh-btn:hover {
+            background: #0b7dda;
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .error {
+            color: red;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .info {
+            text-align: center;
+            color: #666;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Random Coffee</h1>
+    <div class="container">
+        <div class="file-input-container">
+            <input type="file" id="fileInput" accept=".xlsx" />
+        </div>
+        <div id="error" class="error"></div>
+        <div id="info" class="info"></div>
+        <div id="matches" class="matches-container"></div>
+        <div class="button-container">
+            <button id="refreshBtn" class="btn refresh-btn" style="display: none;">Refresh Matches</button>
+            <button id="downloadBtn" class="btn download-btn" style="display: none;">Download Result</button>
+        </div>
+    </div>
+
+    <script>
+        let currentWorkbook = null;
+        let currentMatches = [];
+        let currentDate = '';
+        let currentUsers = [];
+
+        document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+        document.getElementById('downloadBtn').addEventListener('click', downloadResult);
+        document.getElementById('refreshBtn').addEventListener('click', refreshMatches);
+
+        async function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    currentWorkbook = workbook;
+                    processWorkbook(workbook);
+                } catch (error) {
+                    showError('Error reading file: ' + error.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processWorkbook(workbook) {
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const users = XLSX.utils.sheet_to_json(sheet);
+
+            if (users.length === 0) {
+                showError('No users found in the file');
+                return;
+            }
+
+            currentUsers = users;
+
+            // Get history from History sheet if it exists
+            const history = getHistory(workbook);
+            
+            // Create matches
+            currentDate = new Date().toISOString().split('T')[0];
+            currentMatches = createMatches(users, history);
+            
+            // Display matches
+            displayMatches(currentMatches);
+            
+            // Show buttons
+            document.getElementById('downloadBtn').style.display = 'block';
+            document.getElementById('refreshBtn').style.display = 'block';
+            showInfo(`Created ${currentMatches.length} matches`);
+        }
+
+        function getHistory(workbook) {
+            const history = [];
+            if (workbook.SheetNames.includes('History')) {
+                const historySheet = workbook.Sheets['History'];
+                const historyData = XLSX.utils.sheet_to_json(historySheet);
+                historyData.forEach(row => {
+                    if (row.Person1 && row.Person2) {
+                        history.push({
+                            person1: row.Person1,
+                            person2: row.Person2,
+                            date: row.Date
+                        });
+                    }
+                });
+            }
+            return history;
+        }
+
+        function createMatches(users, history) {
+            const matches = [];
+            const usedIndices = new Set();
+            
+            // Shuffle users for randomness
+            const shuffledUsers = [...users].sort(() => Math.random() - 0.5);
+            
+            for (let i = 0; i < shuffledUsers.length; i++) {
+                if (usedIndices.has(i)) continue;
+                
+                const user1 = shuffledUsers[i];
+                let bestMatch = null;
+                let bestMatchIndex = -1;
+                
+                // Find best match (different location, not previously matched)
+                for (let j = i + 1; j < shuffledUsers.length; j++) {
+                    if (usedIndices.has(j)) continue;
+                    
+                    const user2 = shuffledUsers[j];
+                    
+                    // Must be different locations
+                    if (user1.Location === user2.Location) continue;
+                    
+                    // Check if already matched in history
+                    const alreadyMatched = history.some(h => 
+                        (h.person1 === user1.Name && h.person2 === user2.Name) ||
+                        (h.person1 === user2.Name && h.person2 === user1.Name)
+                    );
+                    
+                    if (!alreadyMatched) {
+                        bestMatch = user2;
+                        bestMatchIndex = j;
+                        break; // Found a good match
+                    }
+                    
+                    // If no non-matched found yet, keep this as backup
+                    if (!bestMatch) {
+                        bestMatch = user2;
+                        bestMatchIndex = j;
+                    }
+                }
+                
+                if (bestMatch) {
+                    matches.push({
+                        person1: user1.Name,
+                        location1: user1.Location,
+                        person2: bestMatch.Name,
+                        location2: bestMatch.Location,
+                        date: currentDate
+                    });
+                    usedIndices.add(i);
+                    usedIndices.add(bestMatchIndex);
+                }
+            }
+            
+            return matches;
+        }
+
+        function displayMatches(matches) {
+            const container = document.getElementById('matches');
+            container.innerHTML = '';
+            
+            if (matches.length === 0) {
+                container.innerHTML = '<p class="info">No matches could be created</p>';
+                return;
+            }
+            
+            matches.forEach((match, index) => {
+                const div = document.createElement('div');
+                div.className = 'match-item';
+                div.innerHTML = `
+                    <strong>Match ${index + 1}:</strong><br>
+                    ${match.person1} (${match.location1}) ↔ ${match.person2} (${match.location2})
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function downloadResult() {
+            if (!currentWorkbook || currentMatches.length === 0) return;
+            
+            // Get existing history
+            const existingHistory = getHistory(currentWorkbook);
+            
+            // Add current matches to history
+            const newHistory = [...existingHistory, ...currentMatches.map(m => ({
+                Person1: m.person1,
+                Person2: m.person2,
+                Date: m.date
+            }))];
+            
+            // Create new workbook with original data and updated history
+            const newWorkbook = XLSX.utils.book_new();
+            
+            // Copy original users sheet
+            const originalSheet = currentWorkbook.Sheets[currentWorkbook.SheetNames[0]];
+            XLSX.utils.book_append_sheet(newWorkbook, originalSheet, 'Users');
+            
+            // Create history sheet
+            const historySheet = XLSX.utils.json_to_sheet(newHistory);
+            XLSX.utils.book_append_sheet(newWorkbook, historySheet, 'History');
+            
+            // Download
+            const fileName = `random_coffee_${currentDate}.xlsx`;
+            XLSX.writeFile(newWorkbook, fileName);
+            
+            showInfo('File downloaded successfully!');
+        }
+
+        function refreshMatches() {
+            if (!currentWorkbook || !currentUsers || currentUsers.length === 0) return;
+            
+            // Get history from workbook
+            const history = getHistory(currentWorkbook);
+            
+            // Create new matches
+            currentMatches = createMatches(currentUsers, history);
+            
+            // Display matches
+            displayMatches(currentMatches);
+            showInfo(`Refreshed! Created ${currentMatches.length} new matches`);
+        }
+
+        function showError(message) {
+            document.getElementById('error').textContent = message;
+            document.getElementById('info').textContent = '';
+            document.getElementById('matches').innerHTML = '';
+            document.getElementById('downloadBtn').style.display = 'none';
+            document.getElementById('refreshBtn').style.display = 'none';
+        }
+
+        function showInfo(message) {
+            document.getElementById('info').textContent = message;
+            document.getElementById('error').textContent = '';
+        }
+    </script>
+</body>
+</html>
