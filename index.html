@@ -185,15 +185,22 @@
             
             // Shuffle users for randomness
             const shuffledUsers = [...users].sort(() => Math.random() - 0.5);
+            const totalUsers = shuffledUsers.length;
             
+            // Track how many matches each user has (for odd number handling)
+            const matchCount = new Map();
+            shuffledUsers.forEach((_, idx) => matchCount.set(idx, 0));
+            
+            // First pass: try to create optimal matches (different location, not in history)
             for (let i = 0; i < shuffledUsers.length; i++) {
                 if (usedIndices.has(i)) continue;
                 
                 const user1 = shuffledUsers[i];
                 let bestMatch = null;
                 let bestMatchIndex = -1;
+                let bestScore = -1;
                 
-                // Find best match (different location, not previously matched)
+                // Find best match
                 for (let j = i + 1; j < shuffledUsers.length; j++) {
                     if (usedIndices.has(j)) continue;
                     
@@ -208,16 +215,15 @@
                         (h.person1 === user2.Name && h.person2 === user1.Name)
                     );
                     
-                    if (!alreadyMatched) {
-                        bestMatch = user2;
-                        bestMatchIndex = j;
-                        break; // Found a good match
-                    }
+                    // Score: prefer matches not in history
+                    const score = alreadyMatched ? 0 : 1;
                     
-                    // If no non-matched found yet, keep this as backup
-                    if (!bestMatch) {
+                    if (score > bestScore) {
                         bestMatch = user2;
                         bestMatchIndex = j;
+                        bestScore = score;
+                        // If we found a perfect match (not in history), use it
+                        if (score === 1) break;
                     }
                 }
                 
@@ -231,6 +237,81 @@
                     });
                     usedIndices.add(i);
                     usedIndices.add(bestMatchIndex);
+                    matchCount.set(i, matchCount.get(i) + 1);
+                    matchCount.set(bestMatchIndex, matchCount.get(bestMatchIndex) + 1);
+                }
+            }
+            
+            // Second pass: handle unmatched users
+            const unmatchedIndices = [];
+            for (let i = 0; i < shuffledUsers.length; i++) {
+                if (!usedIndices.has(i)) {
+                    unmatchedIndices.push(i);
+                }
+            }
+            
+            // If we have unmatched users, match them with each other
+            while (unmatchedIndices.length >= 2) {
+                const idx1 = unmatchedIndices.shift();
+                const idx2 = unmatchedIndices.shift();
+                
+                const user1 = shuffledUsers[idx1];
+                const user2 = shuffledUsers[idx2];
+                
+                matches.push({
+                    person1: user1.Name,
+                    location1: user1.Location,
+                    person2: user2.Name,
+                    location2: user2.Location,
+                    date: currentDate
+                });
+                usedIndices.add(idx1);
+                usedIndices.add(idx2);
+                matchCount.set(idx1, matchCount.get(idx1) + 1);
+                matchCount.set(idx2, matchCount.get(idx2) + 1);
+            }
+            
+            // If odd number of users, one user remains unmatched - give them a second match
+            if (unmatchedIndices.length === 1) {
+                const unmatchedIdx = unmatchedIndices[0];
+                const unmatchedUser = shuffledUsers[unmatchedIdx];
+                
+                // Find a user who already has one match to give them a second match
+                // Prefer someone from different location
+                let bestSecondMatch = null;
+                let bestSecondMatchIndex = -1;
+                
+                for (let i = 0; i < shuffledUsers.length; i++) {
+                    if (i === unmatchedIdx) continue;
+                    
+                    const candidate = shuffledUsers[i];
+                    
+                    // Prefer different location
+                    if (unmatchedUser.Location === candidate.Location) continue;
+                    
+                    // Prefer someone who hasn't been matched with this user before
+                    const alreadyMatched = history.some(h => 
+                        (h.person1 === unmatchedUser.Name && h.person2 === candidate.Name) ||
+                        (h.person1 === candidate.Name && h.person2 === unmatchedUser.Name)
+                    );
+                    
+                    if (!alreadyMatched || !bestSecondMatch) {
+                        bestSecondMatch = candidate;
+                        bestSecondMatchIndex = i;
+                        if (!alreadyMatched) break; // Found a good match
+                    }
+                }
+                
+                if (bestSecondMatch) {
+                    matches.push({
+                        person1: unmatchedUser.Name,
+                        location1: unmatchedUser.Location,
+                        person2: bestSecondMatch.Name,
+                        location2: bestSecondMatch.Location,
+                        date: currentDate
+                    });
+                    matchCount.set(unmatchedIdx, matchCount.get(unmatchedIdx) + 1);
+                    matchCount.set(bestSecondMatchIndex, matchCount.get(bestSecondMatchIndex) + 1);
                 }
             }
             
