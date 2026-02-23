@@ -109,10 +109,53 @@
         let currentMatches = [];
         let currentDate = '';
         let currentUsers = [];
+        let forcedPair = null;
 
         document.getElementById('fileInput').addEventListener('change', handleFileUpload);
         document.getElementById('downloadBtn').addEventListener('click', downloadResult);
         document.getElementById('refreshBtn').addEventListener('click', refreshMatches);
+
+        function normalizeName(name) {
+            return String(name || '').trim().toLowerCase();
+        }
+
+        function findUserIndexByName(users, name) {
+            const normalizedTarget = normalizeName(name);
+            return users.findIndex(user => normalizeName(user.Name) === normalizedTarget);
+        }
+
+        window.setForcedMatch = function(person1, person2) {
+            const first = String(person1 || '').trim();
+            const second = String(person2 || '').trim();
+
+            if (!first || !second) {
+                throw new Error('Both names are required. Example: setForcedMatch("Alice", "Bob")');
+            }
+
+            if (normalizeName(first) === normalizeName(second)) {
+                throw new Error('Forced match requires two different people.');
+            }
+
+            forcedPair = { person1: first, person2: second };
+
+            if (currentUsers.length > 0) {
+                refreshMatches();
+            }
+
+            return `Forced match set: ${first} <-> ${second}`;
+        };
+
+        window.clearForcedMatch = function() {
+            forcedPair = null;
+
+            if (currentUsers.length > 0) {
+                refreshMatches();
+            }
+
+            return 'Forced match cleared';
+        };
+
+        console.log('Forced pair commands: setForcedMatch("Person A", "Person B") | clearForcedMatch()');
 
         async function handleFileUpload(e) {
             const file = e.target.files[0];
@@ -185,11 +228,34 @@
             
             // Shuffle users for randomness
             const shuffledUsers = [...users].sort(() => Math.random() - 0.5);
-            const totalUsers = shuffledUsers.length;
             
             // Track how many matches each user has (for odd number handling)
             const matchCount = new Map();
             shuffledUsers.forEach((_, idx) => matchCount.set(idx, 0));
+
+            // Apply optional forced pair from browser console.
+            if (forcedPair) {
+                const forcedIndex1 = findUserIndexByName(shuffledUsers, forcedPair.person1);
+                const forcedIndex2 = findUserIndexByName(shuffledUsers, forcedPair.person2);
+
+                if (forcedIndex1 !== -1 && forcedIndex2 !== -1 && forcedIndex1 !== forcedIndex2) {
+                    const user1 = shuffledUsers[forcedIndex1];
+                    const user2 = shuffledUsers[forcedIndex2];
+
+                    matches.push({
+                        person1: user1.Name,
+                        location1: user1.Location,
+                        person2: user2.Name,
+                        location2: user2.Location,
+                        date: currentDate
+                    });
+
+                    usedIndices.add(forcedIndex1);
+                    usedIndices.add(forcedIndex2);
+                    matchCount.set(forcedIndex1, matchCount.get(forcedIndex1) + 1);
+                    matchCount.set(forcedIndex2, matchCount.get(forcedIndex2) + 1);
+                }
+            }
             
             // First pass: try to create optimal matches (different location, not in history)
             for (let i = 0; i < shuffledUsers.length; i++) {
