@@ -410,12 +410,19 @@
             // Get existing history
             const existingHistory = getHistory(currentWorkbook);
             
-            // Add current matches to history
-            const newHistory = [...existingHistory, ...currentMatches.map(m => ({
-                Person1: m.person1,
-                Person2: m.person2,
-                Date: m.date
-            }))];
+            // Normalize existing history keys to match the write format
+            const newHistory = [
+                ...existingHistory.map(h => ({
+                    Person1: h.person1,
+                    Person2: h.person2,
+                    Date: h.date
+                })),
+                ...currentMatches.map(m => ({
+                    Person1: m.person1,
+                    Person2: m.person2,
+                    Date: m.date
+                }))
+            ];
             
             // Create new workbook with original data and updated history
             const newWorkbook = XLSX.utils.book_new();
