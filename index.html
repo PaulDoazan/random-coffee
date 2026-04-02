@@ -206,19 +206,32 @@
 
         function getHistory(workbook) {
             const history = [];
-            if (workbook.SheetNames.includes('History')) {
-                const historySheet = workbook.Sheets['History'];
-                const historyData = XLSX.utils.sheet_to_json(historySheet);
-                historyData.forEach(row => {
-                    if (row.Person1 && row.Person2) {
+            if (!workbook.SheetNames.includes('History')) return history;
+
+            const historySheet = workbook.Sheets['History'];
+            const data = XLSX.utils.sheet_to_json(historySheet, { header: 1 });
+            if (data.length === 0) return history;
+
+            // Each session is a 3-column group (Person1, Person2, Date) laid out horizontally
+            const headerRow = data[0] || [];
+            const numGroups = Math.floor(headerRow.length / 3);
+
+            for (let g = 0; g < numGroups; g++) {
+                const col = g * 3;
+                for (let r = 1; r < data.length; r++) {
+                    const row = data[r] || [];
+                    const person1 = row[col];
+                    const person2 = row[col + 1];
+                    if (person1 && person2) {
                         history.push({
-                            person1: row.Person1,
-                            person2: row.Person2,
-                            date: row.Date
+                            person1: String(person1),
+                            person2: String(person2),
+                            date: row[col + 2]
                         });
                     }
-                });
+                }
             }
+
             return history;
         }
 
@@ -406,39 +419,46 @@
 
         function downloadResult() {
             if (!currentWorkbook || currentMatches.length === 0) return;
-            
-            // Get existing history
-            const existingHistory = getHistory(currentWorkbook);
-            
-            // Normalize existing history keys to match the write format
-            const newHistory = [
-                ...existingHistory.map(h => ({
-                    Person1: h.person1,
-                    Person2: h.person2,
-                    Date: h.date
-                })),
-                ...currentMatches.map(m => ({
-                    Person1: m.person1,
-                    Person2: m.person2,
-                    Date: m.date
-                }))
-            ];
-            
-            // Create new workbook with original data and updated history
+
+            // Read existing history sheet as raw 2D array to preserve horizontal layout
+            let existingData = [];
+            if (currentWorkbook.SheetNames.includes('History')) {
+                const historySheet = currentWorkbook.Sheets['History'];
+                existingData = XLSX.utils.sheet_to_json(historySheet, { header: 1 });
+            }
+
+            const existingCols = existingData.length > 0 ? (existingData[0] || []).length : 0;
+            const newMatchRows = currentMatches.map(m => [m.person1, m.person2, m.date]);
+            const newSessionRows = [['Person1', 'Person2', 'Date'], ...newMatchRows];
+
+            const totalRows = Math.max(existingData.length, newSessionRows.length);
+            const combined = [];
+
+            for (let r = 0; r < totalRows; r++) {
+                const row = [];
+                // Preserve all existing columns
+                for (let c = 0; c < existingCols; c++) {
+                    row.push(existingData[r] ? (existingData[r][c] ?? '') : '');
+                }
+                // Append the new session column group
+                if (r < newSessionRows.length) {
+                    row.push(...newSessionRows[r]);
+                } else {
+                    row.push('', '', '');
+                }
+                combined.push(row);
+            }
+
             const newWorkbook = XLSX.utils.book_new();
-            
-            // Copy original users sheet
             const originalSheet = currentWorkbook.Sheets[currentWorkbook.SheetNames[0]];
             XLSX.utils.book_append_sheet(newWorkbook, originalSheet, 'Users');
-            
-            // Create history sheet
-            const historySheet = XLSX.utils.json_to_sheet(newHistory);
+
+            const historySheet = XLSX.utils.aoa_to_sheet(combined);
             XLSX.utils.book_append_sheet(newWorkbook, historySheet, 'History');
-            
-            // Download
+
             const fileName = `random_coffee_${currentDate}.xlsx`;
             XLSX.writeFile(newWorkbook, fileName);
-            
+
             showInfo('File downloaded successfully!');
         }
 
