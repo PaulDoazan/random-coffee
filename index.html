@@ -73,6 +73,18 @@
         .refresh-btn:hover {
             background: #0b7dda;
         }
+        .image-btn {
+            background: #FF9800;
+        }
+        .image-btn:hover {
+            background: #e68a00;
+        }
+        .download-html-btn {
+            background: #9C27B0;
+        }
+        .download-html-btn:hover {
+            background: #7B1FA2;
+        }
         .btn:disabled {
             background: #ccc;
             cursor: not-allowed;
@@ -101,6 +113,8 @@
         <div class="button-container">
             <button id="refreshBtn" class="btn refresh-btn" style="display: none;">Refresh Matches</button>
             <button id="downloadBtn" class="btn download-btn" style="display: none;">Download Result</button>
+            <button id="imageBtn" class="btn image-btn" style="display: none;">Generate Image</button>
+            <button id="downloadHtmlBtn" class="btn download-html-btn" style="display: none;">Download HTML</button>
         </div>
     </div>
 
@@ -114,6 +128,8 @@
         document.getElementById('fileInput').addEventListener('change', handleFileUpload);
         document.getElementById('downloadBtn').addEventListener('click', downloadResult);
         document.getElementById('refreshBtn').addEventListener('click', refreshMatches);
+        document.getElementById('imageBtn').addEventListener('click', generateImage);
+        document.getElementById('downloadHtmlBtn').addEventListener('click', downloadImageHtml);
 
         function normalizeName(name) {
             return String(name || '').trim().toLowerCase();
@@ -201,6 +217,8 @@
             // Show buttons
             document.getElementById('downloadBtn').style.display = 'block';
             document.getElementById('refreshBtn').style.display = 'block';
+            document.getElementById('imageBtn').style.display = 'block';
+            document.getElementById('downloadHtmlBtn').style.display = 'block';
             showInfo(`Created ${currentMatches.length} matches`);
         }
 
@@ -460,6 +478,130 @@
             XLSX.writeFile(newWorkbook, fileName);
 
             showInfo('File downloaded successfully!');
+        }
+
+        function getMonthLabel() {
+            const months = ['janv', 'fév', 'mars', 'avr', 'mai', 'juin',
+                            'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
+            const now = new Date();
+            return `${months[now.getMonth()]} ${now.getFullYear()}`;
+        }
+
+        function buildImageHtml() {
+            var label = getMonthLabel();
+            var pairs = currentMatches.slice();
+            var soloName = null;
+
+            // Detect solo person when odd number of participants:
+            // createMatches adds a forced extra pair at the end (person2 already matched elsewhere)
+            var totalSlots = pairs.length * 2;
+            if (totalSlots > currentUsers.length) {
+                var extra = pairs.pop();
+                soloName = extra.person1;
+            } else if (totalSlots < currentUsers.length) {
+                var matched = {};
+                pairs.forEach(function(m) { matched[m.person1] = true; matched[m.person2] = true; });
+                for (var i = 0; i < currentUsers.length; i++) {
+                    if (!matched[currentUsers[i].Name]) {
+                        soloName = currentUsers[i].Name;
+                        break;
+                    }
+                }
+            }
+
+            var half = Math.ceil(pairs.length / 2);
+            var leftPairs = pairs.slice(0, half);
+            var rightPairs = pairs.slice(half);
+
+            // Solo person goes at the end of the shorter half
+            if (soloName) {
+                if (rightPairs.length <= leftPairs.length) {
+                    rightPairs.push({ person1: soloName, person2: '' });
+                } else {
+                    leftPairs.push({ person1: soloName, person2: '' });
+                }
+            }
+
+            function esc(s) {
+                return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+
+            function buildCol(items) {
+                var out = '';
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i]) out += '<li>' + esc(items[i]) + '<\/li>';
+                }
+                return out;
+            }
+
+            var col1 = buildCol(leftPairs.map(function(m) { return m.person1; }));
+            var col2 = buildCol(leftPairs.map(function(m) { return m.person2; }));
+            var col3 = buildCol(rightPairs.map(function(m) { return m.person1; }));
+            var col4 = buildCol(rightPairs.map(function(m) { return m.person2; }));
+
+            var parts = [];
+            parts.push('<!DOCTYPE html>');
+            parts.push('<html lang="fr">');
+            parts.push('<head>');
+            parts.push('<meta charset="UTF-8">');
+            parts.push('<meta name="viewport" content="width=device-width, initial-scale=1.0">');
+            parts.push('<title>Random Coffee ' + esc(label) + '<\/title>');
+            parts.push('<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">');
+            parts.push('<style>');
+            parts.push('* { margin: 0; padding: 0; box-sizing: border-box; }');
+            parts.push('body { font-family: "Nunito", "Trebuchet MS", sans-serif; background: #ffffff; padding: 24px; display: flex; justify-content: center; }');
+            parts.push('.card { background: #ffffff; max-width: 960px; width: 100%; border-radius: 4px; overflow: hidden; }');
+            parts.push('.header { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 28px 24px 20px; background: #fff; }');
+            parts.push('.header h1 { font-size: 2.4rem; font-weight: 800; color: #1a2744; letter-spacing: -0.5px; }');
+            parts.push('.header .emoji { font-size: 2rem; }');
+            parts.push('.section-title { background: #b8cce4; color: #1a2744; font-weight: 800; font-size: 1.15rem; padding: 10px 20px; }');
+            parts.push('.grid-wrapper { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; background: #fff; }');
+            parts.push('.col { padding: 16px 20px; }');
+            parts.push('.col:nth-child(odd) { background: #1a2744; }');
+            parts.push('.col:nth-child(even) { background: #f5c842; }');
+            parts.push('.col ul { list-style: none; display: flex; flex-direction: column; gap: 3px; }');
+            parts.push('.col li { font-size: 0.95rem; font-weight: 700; line-height: 1.5; }');
+            parts.push('.col:nth-child(odd) li { color: #f5c842; }');
+            parts.push('.col:nth-child(even) li { color: #1a2744; }');
+            parts.push('<\/style>');
+            parts.push('<\/head>');
+            parts.push('<body>');
+            parts.push('<div class="card">');
+            parts.push('  <div class="header">');
+            parts.push('    <h1>Random Coffee<\/h1>');
+            parts.push('    <span class="emoji">\u2615<\/span>');
+            parts.push('  <\/div>');
+            parts.push('  <div class="section-title">Random Coffee ' + esc(label) + '<\/div>');
+            parts.push('  <div class="grid-wrapper">');
+            parts.push('    <div class="col"><ul>' + col1 + '<\/ul><\/div>');
+            parts.push('    <div class="col"><ul>' + col2 + '<\/ul><\/div>');
+            parts.push('    <div class="col"><ul>' + col3 + '<\/ul><\/div>');
+            parts.push('    <div class="col"><ul>' + col4 + '<\/ul><\/div>');
+            parts.push('  <\/div>');
+            parts.push('<\/div>');
+            parts.push('<\/body>');
+            parts.push('<\/html>');
+
+            return parts.join('\n');
+        }
+
+        function generateImage() {
+            if (currentMatches.length === 0) return;
+            var html = buildImageHtml();
+            var blob = new Blob([html], { type: 'text/html' });
+            window.open(URL.createObjectURL(blob), '_blank');
+        }
+
+        function downloadImageHtml() {
+            if (currentMatches.length === 0) return;
+            var html = buildImageHtml();
+            var blob = new Blob([html], { type: 'text/html' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'random_coffee_' + getMonthLabel().replace(' ', '_') + '.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
 
         function refreshMatches() {
